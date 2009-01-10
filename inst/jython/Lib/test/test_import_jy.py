@@ -73,14 +73,8 @@ class MislabeledImportTestCase(unittest.TestCase):
         fp.close()
         module_obj = __import__('foo.test')
         self.assertEquals(module_obj.test.baz, 'testtest')
-        # XXX: Jython's import has a bug where it doesn't use the
-        # $py.class filename when it exists along with the .py file
-        if sys.platform.startswith('java'):
-            self.assertEqual(module_obj.test.init_file,
-                             os.path.join('foo', '__init__.py'))
-        else:
-            self.assertEqual(module_obj.test.init_file,
-                             os.path.join('foo', '__init__' + COMPILED_SUFFIX))
+        self.assertEqual(module_obj.test.init_file,
+                         os.path.join('foo', '__init__' + COMPILED_SUFFIX))
 
         # Ensure a recompile of __init__$py.class wasn't triggered to
         # satisfy the abnormal import
@@ -95,10 +89,72 @@ class MislabeledImportTestCase(unittest.TestCase):
         # Again ensure we didn't recompile
         self.assertEquals(bytecode, read(init_compiled),
                           'bytecode was recompiled')
+    def test_corrupt_bytecode(self):
+        f = open("empty$py.class", "w")
+        f.close()
+        self.assertRaises(ImportError, __import__, "empty")
+        f = open("empty.py", "w")
+        f.close()
+        self.assertRaises(ImportError, __import__, "empty")
+
+class OverrideBuiltinsImportTestCase(unittest.TestCase):
+    def test_override(self):
+        tests = [
+            ("import os.path"         , "('os.path', None, -1, 'os')"  ),
+            ("import os.path as path2", "('os.path', None, -1, 'os')"  ),
+            ("from os.path import *"  , "('os.path', ('*',), -1, 'posixpath')"),
+            ("from os.path import join",
+                 "('os.path', ('join',), -1, 'posixpath')"),
+            ("from os.path import join as join2",
+                 "('os.path', ('join',), -1, 'posixpath')"),
+            ("from os.path import join as join2, split as split2",
+                 "('os.path', ('join', 'split'), -1, 'posixpath')"),
+        ]
+
+        import sys
+        # Replace __builtin__.__import__ to trace the calls
+        import __builtin__
+        oldimp = __builtin__.__import__
+        try:
+            def __import__(name, globs, locs, fromlist, level=-1):
+                mod = oldimp(name, globs, locs, fromlist, level)
+                globs["result"] = str((name, fromlist, level, mod.__name__))
+                raise ImportError
+
+            __builtin__.__import__ = __import__
+            failed = 0
+            for statement, expected in tests:
+                try:
+                    c = compile(statement, "<unknown>", "exec")
+                    exec c in locals(), globals()
+                    raise Exception("ImportError expected.")
+                except ImportError:
+                    pass
+                self.assertEquals(expected, result)
+        finally:
+            __builtin__.__import__ = oldimp
+
+class ImpTestCase(unittest.TestCase):
+
+    def test_imp_find_module_builtins(self):
+        self.assertEqual(imp.find_module('sys'), (None, 'sys', ('', '', 6)))
+        self.assertEqual(imp.find_module('__builtin__'),
+                         (None, '__builtin__', ('', '', 6)))
+        self.assertEqual(imp.find_module('imp'), (None, 'imp', ('', '', 6)))
+
+    def test_getattr_module(self):
+        '''Replacing __getattr__ in a class shouldn't lead to calls to __getitem__
+
+        http://bugs.jython.org/issue438108'''
+        from test import anygui
+        # causes a stack overflow if the bug occurs
+        self.assertRaises(Exception, getattr, anygui, 'abc')
 
 
 def test_main():
-    test_support.run_unittest(MislabeledImportTestCase)
+    test_support.run_unittest(MislabeledImportTestCase,
+                              OverrideBuiltinsImportTestCase,
+                              ImpTestCase)
 
 if __name__ == '__main__':
     test_main()

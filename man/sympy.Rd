@@ -62,10 +62,13 @@ sympy("integrate(exp(-x), (x, 0, oo))")
 sympy("xr = Symbol('xr', real=True)")
 sympy("exp(I*xr).expand(complex=True)")
 
+sympy("solve(x**2 - x, x)")
+sympy("var('y')")
+sympy("solve([x + 5*y - 2, -3*x + 6*y - 15], [x, y])")
+
 # Matrices are stored row by row (unlike R matrices)
 cat(sympy("A = Matrix([[1,x], [y,1]])"), "\n")
 cat(sympy("A**2"), "\n")
-
 
 }
 }

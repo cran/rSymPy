@@ -315,6 +315,13 @@ def getdoc(object):
         return None
     if not isinstance(doc, types.StringTypes):
         return None
+    return cleandoc(doc)
+
+def cleandoc(doc):
+    """Clean up indentation from docstrings.
+
+    Any whitespace that can be uniformly removed from the second line
+    onwards is removed."""
     try:
         lines = string.split(string.expandtabs(doc), '\n')
     except UnicodeError:
@@ -383,6 +390,8 @@ def getsourcefile(object):
     filename = getfile(object)
     if string.lower(filename[-4:]) in ('.pyc', '.pyo'):
         filename = filename[:-4] + '.py'
+    elif filename.endswith('$py.class'):
+        filename = filename[:-9] + '.py'
     for suffix, mode, kind in imp.get_suffixes():
         if 'b' in mode and string.lower(filename[-len(suffix):]) == suffix:
             # Looks like a binary file.  We want to only return a text file.

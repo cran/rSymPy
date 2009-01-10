@@ -1,6 +1,8 @@
+1# -*- coding: utf-8 -*-
 import sys
 import unittest
 import test.test_support
+from codecs import BOM_UTF8
 
 class BuiltinTest(unittest.TestCase):
         
@@ -13,6 +15,13 @@ class BuiltinTest(unittest.TestCase):
             def __getattr__(self, name):
                 raise TypeError()
         self.assert_(not hasattr(Foo(), 'bar'))
+
+    def test_dir(self):
+        # for http://bugs.jython.org/issue1196
+        class Foo(object):
+            def __getattribute__(self, name):
+                return name
+        self.assertEqual(dir(Foo()), [])
 
 class LoopTest(unittest.TestCase):
 
@@ -120,6 +129,46 @@ class ConversionTest(unittest.TestCase):
     def test_round_non_float(self):
         self.assertEqual(round(self.Foo(), 1), 3.1)
 
+class ExecEvalTest(unittest.TestCase):
+
+    def test_eval_bom(self):
+        self.assertEqual(eval(BOM_UTF8 + '"foo"'), 'foo')
+        # Actual BOM ignored, so causes a SyntaxError
+        self.assertRaises(SyntaxError, eval,
+                          BOM_UTF8.decode('iso-8859-1') + '"foo"')
+
+    def test_parse_str_eval(self):
+        foo = 'föö'
+        for code in ("'%s'" % foo.decode('utf-8'),
+                     "# coding: utf-8\n'%s'" % foo,
+                     "%s'%s'" % (BOM_UTF8, foo)):
+            mod = compile(code, 'foo.py', 'eval')
+            bar = eval(mod)
+            self.assertEqual(foo, bar)
+            bar = eval(code)
+            self.assertEqual(foo, bar)
+
+    def test_parse_str_exec(self):
+        foo = 'föö'
+        for code in ("a = '%s'" % foo.decode('utf-8'),
+                     "# coding: utf-8\na = '%s'" % foo,
+                     "%sa = '%s'" % (BOM_UTF8, foo)):
+            ns = {}
+            exec code in ns
+            self.assertEqual(foo, ns['a'])
+
+class ModuleNameTest(unittest.TestCase):
+    """Tests that the module when imported has the same __name__"""
+
+    def test_names(self):
+        for name in sys.builtin_module_names:
+            if name != '_jython' and name not in ('time', '_random', 'array', '_collections', '_ast'):
+                module = __import__(name)
+                self.assertEqual(name, module.__name__)
+
+
+
+
 def test_main():
     test.test_support.run_unittest(BuiltinTest,
                                    LoopTest,
@@ -129,7 +178,10 @@ def test_main():
                                    ReturnTest,
                                    ReprTest,
                                    CallableTest,
-                                   ConversionTest)
+                                   ConversionTest,
+                                   ExecEvalTest,
+                                   ModuleNameTest,
+                                   )
 
 if __name__ == "__main__":
     test_main()

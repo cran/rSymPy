@@ -339,10 +339,6 @@ class ExceptionTests(unittest.TestCase):
 
 
 def test_main():
-    from test import test_support
-    if test_support.is_jython:
-        # XXX: http://bugs.jython.org/issue1063
-        del ExceptionTests.testInfiniteRecursion
     run_unittest(ExceptionTests)
 
 if __name__ == '__main__':

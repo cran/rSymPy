@@ -6,7 +6,7 @@ sympyStart <- function() {
 		jython <- system.file("jython", package = "rSymPy")
 	}
 	library(rJava)
-	.jinit(file.path(jython, "jython-complete.jar"))
+	.jinit(file.path(jython, "jython.jar"))
 	assign(".Rsympy", .jnew("org.python.util.PythonInterpreter"), .GlobalEnv)
 	.jcall(.Rsympy, "V", "exec", "import sys")
 	.jcall(.Rsympy, "V", "exec", 'print sys.path')

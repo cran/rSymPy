@@ -1,75 +1,36 @@
 import os
 import unittest
+import subprocess
 import sys
 import re
-
+ 
 from test import test_support
-from java.awt import (Dimension, Component, Rectangle, Button, Color,
-                      HeadlessException)
-from java.util import Vector, Hashtable
-from java.io import FileOutputStream, FileWriter, OutputStreamWriter
-                     
-from java.lang import Runnable, Thread, ThreadGroup, System, Runtime, Math, Byte
-from javax.swing.tree import TreePath
+
+from java.lang import (ExceptionInInitializerError, String, Runnable, System, Runtime, Math, Byte)
 from java.math import BigDecimal
+from java.io import (FileInputStream, FileNotFoundException, FileOutputStream, FileWriter,
+    OutputStreamWriter, UnsupportedEncodingException)
+from java.util import ArrayList, Date, HashMap, Hashtable, StringTokenizer, Vector
 
-"""
-public abstract class Abstract {
-    public Abstract() {
-        method();
-    }
+from java.awt import Dimension, Color, Component, Container
+from java.awt.event import ComponentEvent
+from javax.swing.tree import TreePath
 
-    public abstract void method();
-}
-"""
-# The following is the correspoding bytecode for Abstract compiled with javac 1.5
-ABSTRACT_CLASS = """\
-eJw1TrsKwkAQnI1nEmMe/oKdSaHYiyCClWih2F+SQyOaQDz9LxsFCz/AjxL3Am6xw8zs7O7n+3oD
-GKPnQcD30ELgIHQQEexJURZ6SmgN4h1BzKtcEaJlUarV9ZyqeivTEyv2WelDlRO8TXWtM7UojBrM
-0ouuZaaHR3mTPtqwfXRgE9y/Q+gZb3SS5X60To8q06LPHwiYskAmxN1hFjMSYyd5gpIHrDsT3sU9
-5IgZF4wuhCBzpnG9Ru/+AF4RJn8=
-""".decode('base64').decode('zlib')
-
-class AbstractOnSyspathTest(unittest.TestCase):
-    '''Subclasses an abstract class that isn't on the startup classpath.
-    
-    Checks for http://jython.org/bugs/1861985
-    '''
-    def setUp(self):
-        out = open('Abstract.class', 'w')
-        out.write(ABSTRACT_CLASS)
-        out.close()
-        self.orig_syspath = sys.path[:]
-        sys.path.append('')
-
-    def tearDown(self):
-        os.unlink('Abstract.class')
-        sys.path = self.orig_syspath
-
-    def test_can_subclass_abstract(self):
-        import Abstract
-        
-        class A(Abstract):
-            def method(self):
-                pass
-        A()
+from org.python.core.util import FileUtil
+from org.python.tests import BeanImplementation, Listenable
 
 class InstantiationTest(unittest.TestCase):
-    def test_cant_create_abstract(self):
-        self.assertRaises(TypeError, Component)
-
-    def test_can_subclass_abstract(self):
-        class A(Component):
-            pass
-        A()
-
     def test_cant_instantiate_abstract(self):
         self.assertRaises(TypeError, Component)
 
-    def test_str_doesnt_coerce_to_int(self):
-        from java.util import Date
-        self.assertRaises(TypeError, Date, '99-01-01', 1, 1)
+    def test_no_public_constructors(self):
+        self.assertRaises(TypeError, Math)
 
+    def test_invalid_self_to_java_constructor(self):
+        self.assertRaises(TypeError, Color.__init__, 10, 10, 10)
+
+    def test_str_doesnt_coerce_to_int(self):
+        self.assertRaises(TypeError, Date, '99-01-01', 1, 1)
 
 class BeanTest(unittest.TestCase):
     def test_shared_names(self):
@@ -78,9 +39,6 @@ class BeanTest(unittest.TestCase):
 
     def test_multiple_listeners(self):
         '''Check that multiple BEP can be assigned to a single cast listener'''
-        from org.python.tests import Listenable
-        from java.awt.event import ComponentEvent
-        from java.awt import Container
         m = Listenable()
         called = []
         def f(evt, called=called):
@@ -93,86 +51,42 @@ class BeanTest(unittest.TestCase):
         self.assertEquals(1, len(called))
         m.fireComponentHidden(ComponentEvent(Container(), 0))
         self.assertEquals(2, len(called))
+    
+    def test_bean_interface(self):
+        b = BeanImplementation()
+        self.assertEquals("name", b.getName())
+        self.assertEquals("name", b.name)
 
-class ExtendJavaTest(unittest.TestCase):
-    def test_override_tostring(self):
-        from java.lang import Object, String
-        class A(Object):
-            def toString(self):
-                return 'name'
-        self.assertEquals('name', String.valueOf(A()))
 
 class SysIntegrationTest(unittest.TestCase):
+    def setUp(self):
+        self.orig_stdout = sys.stdout
+
+    def tearDown(self):
+        sys.stdout = self.orig_stdout
+
     def test_stdout_outputstream(self):
         out = FileOutputStream(test_support.TESTFN)
-        oldstdout = sys.stdout
         sys.stdout = out
         print 'hello',
         out.close()
         f = open(test_support.TESTFN)
         self.assertEquals('hello', f.read())
         f.close()
-        sys.stdout = out
                 
-class AutoSuperTest(unittest.TestCase):
-        
-    def test_auto_super(self):
-        class R(Rectangle):
-            def __init__(self):
-                self.size = Dimension(6, 7)
-        self.assert_("width=6,height=7" in  R().toString())
-
-    def test_no_default_constructor(self):
-        "Check autocreation when java superclass misses a default constructor."
-        class A(ThreadGroup):
-            def __init__(self):
-                print self.name
-        self.assertRaises(TypeError, A)
-        
-    def test_no_public_constructors(self):
-        self.assertRaises(TypeError, Math)
-
-class PyObjectCmpTest(unittest.TestCase):
-
-    def test_vect_cmp(self):
-        "Check comparing a PyJavaClass with a Object."
-        class X(Runnable):
-            pass
-        v = Vector()
-        v.addElement(1)
-        v.indexOf(X())
-
 class IOTest(unittest.TestCase):
-
     def test_io_errors(self):
         "Check that IOException isn't mangled into an IOError"
-        from java.io import UnsupportedEncodingException
-        self.assertRaises(UnsupportedEncodingException, OutputStreamWriter, 
-                System.out, "garbage")
-    
+        self.assertRaises(UnsupportedEncodingException, OutputStreamWriter, System.out, "garbage")
+        self.assertRaises(IOError, OutputStreamWriter, System.out, "garbage")
+
     def test_fileio_error(self):
-        from java.io import FileInputStream, FileNotFoundException
         self.assertRaises(FileNotFoundException, FileInputStream, "garbage")
 
-    def test_unsupported(self):
-        from org.python.core.util import FileUtil
+    def test_unsupported_tell(self):
         fp = FileUtil.wrap(System.out)
         self.assertRaises(IOError, fp.tell)
 
-class VectorTest(unittest.TestCase):
-
-    def test_looping(self):
-        for i in Vector(): pass
-
-    def test_return_proxy(self):
-        "Jython proxies properly return back from Java code"
-        class FooVector(Vector):
-            bar = 99
-
-        ht = Hashtable()
-        fv = FooVector()
-        ht.put("a", fv)
-        self.failUnless(fv is ht.get("a"))
 
 class JavaReservedNamesTest(unittest.TestCase):
     "Access to reserved words"
@@ -320,27 +234,22 @@ class PyReservedNamesTest(unittest.TestCase):
         self.assertEquals(self.kws.yield(), "yield")
 
 class ImportTest(unittest.TestCase):
-    
     def test_bad_input_exception(self):
         self.assertRaises(ValueError, __import__, '')
 
-class ButtonTest(unittest.TestCase):
-
-    def test_setLabel(self):
-        try:
-            b = Button()
-        except HeadlessException:
-            return # can't raise TestSkipped
-        try:
-            b.setLabel = 4
-        except TypeError, e:
-            self.failUnless("can't assign to this attribute in java instance: setLabel" in str(e))
+    def test_broken_static_initializer(self):
+        self.assertRaises(ExceptionInInitializerError, __import__, "org.python.tests.BadStaticInitializer")
 
 class ColorTest(unittest.TestCase):
+    def test_assigning_over_method(self):
+        self.assertRaises(TypeError, setattr, Color.RED, "getRGB", 4)
 
     def test_static_fields(self):
-        Color.red
-        Color.blue
+        self.assertEquals(Color(255, 0, 0), Color.RED)
+        # The bean accessor for getRed should be active on instances, but the static field red 
+        # should be visible on the class
+        self.assertEquals(255, Color.red.red)
+        self.assertEquals(Color(0, 0, 255), Color.blue)
 
     def test_is_operator(self):
         red = Color.red
@@ -348,73 +257,91 @@ class ColorTest(unittest.TestCase):
         self.assert_(red is Color.red)
 
 class TreePathTest(unittest.TestCase):
-    
     def test_overloading(self):
         treePath = TreePath([1,2,3])
         self.assertEquals(len(treePath.path), 3, "Object[] not passed correctly")
         self.assertEquals(TreePath(treePath.path).path, treePath.path, "Object[] not passed and returned correctly")
-            
+
 class BigDecimalTest(unittest.TestCase):
-    
     def test_coerced_bigdecimal(self):
         from javatests import BigDecimalTest
-        
         x = BigDecimal("123.4321")
         y = BigDecimalTest().asBigDecimal()
 
         self.assertEqual(type(x), type(y), "BigDecimal coerced")
-        self.assertEqual(x, y, "BigDecimal coerced")
-
-class MethodInvTest(unittest.TestCase):
-    
-    def test_method_invokation(self):
-        from javatests import MethodInvokationTest
-        
-        bar = MethodInvokationTest.foo1(Byte(10))
-
-        self.assertEquals(bar, "foo1 with byte arg: 10", "Wrong method called")
-
-class InterfaceTest(unittest.TestCase):
-    
-    def test_override(self):
-        from java.lang import String
-        class Foo(Runnable):
-            def run(self): pass
-            def toString(self): return "Foo!!!"
-            
-        foo = Foo()
-        s = String.valueOf(foo)
-
-        self.assertEquals(s, "Foo!!!", "toString not overridden in interface")
+        self.assertEqual(x, y, "coerced BigDecimal not equal to directly created version")
 
 class JavaStringTest(unittest.TestCase):
-    
     def test_string_not_iterable(self):
-        from java import lang
-        x = lang.String('test')
+        x = String('test')
         self.assertRaises(TypeError, list, x)
 
+class JavaDelegationTest(unittest.TestCase):
+    def test_list_delegation(self):
+        for c in ArrayList, Vector:
+            a = c()
+            self.assertRaises(IndexError, a.__getitem__, 0)
+            a.add("blah")
+            self.assertTrue("blah" in a)
+            self.assertEquals(1, len(a))
+            n = 0
+            for i in a:
+                n += 1
+                self.assertEquals("blah", i)
+            self.assertEquals(1, n)
+            self.assertEquals("blah", a[0])
+            a[0] = "bleh"
+            del a[0]
+            self.assertEquals(0, len(a))
+
+    def test_map_delegation(self):
+        m = HashMap()
+        m["a"] = "b"
+        self.assertTrue("a" in m)
+        self.assertEquals("b", m["a"])
+        n = 0
+        for k in m:
+            n += 1
+            self.assertEquals("a", k)
+        self.assertEquals(1, n)
+        del m["a"]
+        self.assertEquals(0, len(m))
+
+    def test_enumerable_delegation(self):
+        tokenizer = StringTokenizer('foo bar')
+        self.assertEquals(list(iter(tokenizer)), ['foo', 'bar'])
+
+    def test_vector_delegation(self):
+        class X(Runnable):
+            pass
+        v = Vector()
+        v.addElement(1)
+        v.indexOf(X())# Compares the Java object in the vector to a Python subclass
+        for i in v:
+            pass
+
+class SecurityManagerTest(unittest.TestCase):
+    def test_nonexistent_import_with_security(self):
+        policy = test_support.findfile("python_home.policy")
+        script = test_support.findfile("import_nonexistent.py")
+        self.assertEquals(subprocess.call([sys.executable,  "-J-Dpython.cachedir.skip=true",
+            "-J-Djava.security.manager", "-J-Djava.security.policy=%s" % policy, script]),
+            0)
+
 def test_main():
-    test_support.run_unittest(AbstractOnSyspathTest,
-                              InstantiationTest, 
+    test_support.run_unittest(InstantiationTest, 
                               BeanTest, 
-                              ExtendJavaTest, 
                               SysIntegrationTest,
-                              AutoSuperTest,
-                              PyObjectCmpTest,
                               IOTest,
-                              VectorTest,
                               JavaReservedNamesTest,
                               PyReservedNamesTest,
                               ImportTest,
-                              ButtonTest,
                               ColorTest,
                               TreePathTest,
                               BigDecimalTest,
-                              MethodInvTest,
-                              InterfaceTest,
                               JavaStringTest,
-                              )
+                              JavaDelegationTest,
+                              SecurityManagerTest)
 
 if __name__ == "__main__":
     test_main()

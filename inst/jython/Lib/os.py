@@ -41,6 +41,7 @@ __all__.extend(['EX_OK', 'F_OK', 'O_APPEND', 'O_CREAT', 'O_EXCL', 'O_RDONLY',
                 'write'])
 
 import errno
+import jarray
 import java.lang.System
 import time
 import stat as _stat
@@ -48,6 +49,11 @@ import sys
 from java.io import File
 from org.python.core.io import FileDescriptors, FileIO, IOBase
 from org.python.core.Py import newString as asPyString
+
+try:
+    from org.python.constantine.platform import Errno
+except ImportError:
+    from com.kenai.constantine.platform import Errno
 
 # Mapping of: os._name: [name list, shell command list]
 _os_map = dict(nt=[
@@ -94,14 +100,17 @@ name = 'java'
 # should *NOT* use it
 _name = get_os_type()
 
-from org.python.posix import JavaPOSIX, POSIXHandler, POSIXFactory
+try:
+    from org.python.posix import JavaPOSIX, POSIXHandler, POSIXFactory
+except ImportError:
+    from org.jruby.ext.posix import JavaPOSIX, POSIXHandler, POSIXFactory
 
 class PythonPOSIXHandler(POSIXHandler):
     def error(self, error, msg):
         err = getattr(errno, error.name(), None)
         if err is None:
-            raise OSError('%s: %s' % (error, msg))
-        raise OSError(err, errno.strerror(err), msg)
+            raise OSError('%s: %s' % (error, asPyString(msg)))
+        raise OSError(err, strerror(err), asPyString(msg))
     def unimplementedError(self, method_name):
         raise NotImplementedError(method_name)
     def warn(self, warning_id, msg, rest):
@@ -168,6 +177,9 @@ R_OK = 1<<2
 
 # successful termination
 EX_OK = 0
+
+# Java class representing the size of a time_t. internal use, lazily set
+_time_t = None
 
 class stat_result:
 
@@ -237,7 +249,7 @@ def getcwd():
 
     Return a string representing the current working directory.
     """
-    return sys.getCurrentWorkingDir()
+    return asPyString(sys.getCurrentWorkingDir())
 
 def chdir(path):
     """chdir(path)
@@ -246,9 +258,9 @@ def chdir(path):
     """
     realpath = _path.realpath(path)
     if not _path.exists(realpath):
-        raise OSError(errno.ENOENT, errno.strerror(errno.ENOENT), path)
+        raise OSError(errno.ENOENT, strerror(errno.ENOENT), path)
     if not _path.isdir(realpath):
-        raise OSError(errno.ENOTDIR, errno.strerror(errno.ENOTDIR), path)
+        raise OSError(errno.ENOTDIR, strerror(errno.ENOTDIR), path)
     sys.setCurrentWorkingDir(realpath)
 
 def listdir(path):
@@ -275,7 +287,7 @@ def chmod(path, mode):
     # catch not found errors explicitly here, for now
     abs_path = sys.getPath(path)
     if not File(abs_path).exists():
-        raise OSError(errno.ENOENT, errno.strerror(errno.ENOENT), path)
+        raise OSError(errno.ENOENT, strerror(errno.ENOENT), path)
     _posix.chmod(abs_path, mode)
 
 def mkdir(path, mode='ignored'):
@@ -292,7 +304,7 @@ def mkdir(path, mode='ignored'):
             err = errno.EEXIST
         else:
             err = 0
-        msg = errno.strerror(err) if err else "couldn't make directory"
+        msg = strerror(err) if err else "couldn't make directory"
         raise OSError(err, msg, path)
 
 def makedirs(path, mode='ignored'):
@@ -371,9 +383,9 @@ def rmdir(path):
     Remove a directory."""
     f = File(sys.getPath(path))
     if not f.exists():
-        raise OSError(errno.ENOENT, errno.strerror(errno.ENOENT), path)
+        raise OSError(errno.ENOENT, strerror(errno.ENOENT), path)
     elif not f.isDirectory():
-        raise OSError(errno.ENOTDIR, errno.strerror(errno.ENOTDIR), path)
+        raise OSError(errno.ENOTDIR, strerror(errno.ENOTDIR), path)
     elif not f.delete():
         raise OSError(0, "couldn't delete directory", path)
 
@@ -409,10 +421,20 @@ def strerror(code):
     """
     if not isinstance(code, (int, long)):
         raise TypeError('an integer is required')
-    try:
-        return errno.strerror(code)
-    except KeyError:
+    constant = Errno.valueOf(code)
+    if constant is Errno.__UNKNOWN_CONSTANT__:
         return 'Unknown error: %d' % code
+    if constant.name() == constant.description():
+        # XXX: have constantine handle this fallback
+        # Fake constant or just lacks a description, fallback to Linux's
+        try:
+            from org.python.constantine.platform.linux import Errno as LinuxErrno
+        except ImportError:
+            from com.kenai.constantine.platform.linux import Errno as LinuxErrno
+        constant = getattr(LinuxErrno, constant.name(), None)
+        if not constant:
+            return 'Unknown error: %d' % code
+    return asPyString(constant.toString())
 
 def access(path, mode):
     """access(path, mode) -> True if granted, False otherwise
@@ -459,7 +481,7 @@ def stat(path):
         raise
     f = File(abs_path)
     if not f.exists():
-        raise OSError(errno.ENOENT, errno.strerror(errno.ENOENT), path)
+        raise OSError(errno.ENOENT, strerror(errno.ENOENT), path)
     size = f.length()
     mtime = f.lastModified() / 1000.0
     mode = 0
@@ -486,6 +508,9 @@ def lstat(path):
     except:
         raise
     f = File(sys.getPath(path))
+    # XXX: jna-posix implements similar link detection in
+    # JavaFileStat.calculateSymlink, fallback to that instead when not
+    # native
     abs_parent = f.getAbsoluteFile().getParentFile()
     if not abs_parent:
       # root isn't a link
@@ -509,7 +534,7 @@ def lstat(path):
     # Not a link, only now can we determine if it exists (because
     # File.exists() returns False for dead links)
     if not f.exists():
-        raise OSError(errno.ENOENT, errno.strerror(errno.ENOENT), path)
+        raise OSError(errno.ENOENT, strerror(errno.ENOENT), path)
     return stat(path)
 
 def utime(path, times):
@@ -526,12 +551,42 @@ def utime(path, times):
     if path is None:
         raise TypeError('path must be specified, not None')
 
-    if times is not None:
-        atime, mtime = times
+    if times is None:
+        atimeval = mtimeval = None
+    elif isinstance(times, tuple) and len(times) == 2:
+        atimeval = _to_timeval(times[0])
+        mtimeval = _to_timeval(times[1])
     else:
-        atime = mtime = time.time()
+        raise TypeError('utime() arg 2 must be a tuple (atime, mtime)')
 
-    _posix.utimes(path, long(atime * 1000), long(mtime * 1000))
+    _posix.utimes(path, atimeval, mtimeval)
+
+def _to_timeval(seconds):
+    """Convert seconds (with a fraction) from epoch to a 2 item tuple of
+    seconds, microseconds from epoch as longs
+    """
+    global _time_t
+    if _time_t is None:
+        from java.lang import Integer, Long
+        try:
+            from org.python.posix import Platform
+        except ImportError:
+            from org.jruby.ext.posix.util import Platform
+        _time_t = Integer if Platform.IS_32_BIT else Long
+
+    try:
+        floor = long(seconds)
+    except TypeError:
+        raise TypeError('an integer is required')
+    if not _time_t.MIN_VALUE <= floor <= _time_t.MAX_VALUE:
+        raise OverflowError('long int too large to convert to int')
+
+    # usec can't exceed 1000000
+    usec = long((seconds - floor) * 1e6)
+    if usec < 0:
+        # If rounding gave us a negative number, truncate
+        usec = 0
+    return floor, usec
 
 def close(fd):
     """close(fd)
@@ -550,12 +605,12 @@ def fdopen(fd, mode='r', bufsize=-1):
     if (len(mode) and mode[0] or '') not in 'rwa':
         raise ValueError("invalid file mode '%s'" % mode)
     if rawio.closed():
-        raise OSError(errno.EBADF, errno.strerror(errno.EBADF))
+        raise OSError(errno.EBADF, strerror(errno.EBADF))
 
     try:
         fp = FileDescriptors.wrap(rawio, mode, bufsize)
     except IOError:
-        raise OSError(errno.EINVAL, errno.strerror(errno.EINVAL))
+        raise OSError(errno.EINVAL, strerror(errno.EINVAL))
     return fp
 
 def ftruncate(fd, length):
@@ -567,7 +622,7 @@ def ftruncate(fd, length):
     try:
         rawio.truncate(length)
     except Exception, e:
-        raise IOError(errno.EBADF, errno.strerror(errno.EBADF))
+        raise IOError(errno.EBADF, strerror(errno.EBADF))
 
 def lseek(fd, pos, how):
     """lseek(fd, pos, how) -> newpos
@@ -593,10 +648,10 @@ def open(filename, flag, mode=0777):
     appending = flag & O_APPEND
 
     if updating and writing:
-        raise OSError(errno.EINVAL, errno.strerror(errno.EINVAL), filename)
+        raise OSError(errno.EINVAL, strerror(errno.EINVAL), filename)
 
     if not creating and not path.exists(filename):
-        raise OSError(errno.ENOENT, errno.strerror(errno.ENOENT), filename)
+        raise OSError(errno.ENOENT, strerror(errno.ENOENT), filename)
 
     if not writing:
         if updating:
@@ -611,7 +666,7 @@ def open(filename, flag, mode=0777):
     if exclusive and creating:
         try:
             if not File(sys.getPath(filename)).createNewFile():
-                raise OSError(errno.EEXIST, errno.strerror(errno.EEXIST),
+                raise OSError(errno.EEXIST, strerror(errno.EEXIST),
                               filename)
         except java.io.IOException, ioe:
             raise OSError(ioe)
@@ -627,8 +682,8 @@ def open(filename, flag, mode=0777):
             fchannel = RandomAccessFile(sys.getPath(filename), 'rws').getChannel()
         except FileNotFoundException, fnfe:
             if path.isdir(filename):
-                raise OSError(errno.EISDIR, errno.strerror(errno.EISDIR))
-            raise OSError(errno.ENOENT, errno.strerror(errno.ENOENT), filename)
+                raise OSError(errno.EISDIR, strerror(errno.EISDIR))
+            raise OSError(errno.ENOENT, strerror(errno.ENOENT), filename)
         return FileIO(fchannel, mode)
 
     return FileIO(filename, mode)
@@ -659,30 +714,7 @@ def _handle_oserror(func, *args, **kwargs):
     try:
         return func(*args, **kwargs)
     except:
-        raise OSError(errno.EBADF, errno.strerror(errno.EBADF))
-
-if _name == 'posix' and _native_posix:
-    def link(src, dst):
-        """link(src, dst)
-
-        Create a hard link to a file.
-        """
-        _posix.link(sys.getPath(src), sys.getPath(dst))
-
-    def symlink(src, dst):
-        """symlink(src, dst)
-
-        Create a symbolic link pointing to src named dst.
-        """
-        _posix.symlink(src, sys.getPath(dst))
-
-    def readlink(path):
-        """readlink(path) -> path
-
-        Return a string representing the path to which the symbolic link
-        points.
-        """
-        return _posix.readlink(sys.getPath(path))
+        raise OSError(errno.EBADF, strerror(errno.EBADF))
 
 # Provide lazy popen*, and system objects
 # Do these lazily, as most jython programs don't need them,
@@ -898,65 +930,127 @@ def getenv(key, default=None):
     The optional second argument can specify an alternate default."""
     return environ.get(key, default)
 
-def getegid():
-    """getegid() -> egid
+if _name == 'posix':
+    def link(src, dst):
+        """link(src, dst)
 
-    Return the current process's effective group id."""
-    return _posix.getegid()
+        Create a hard link to a file.
+        """
+        _posix.link(sys.getPath(src), sys.getPath(dst))
 
-def geteuid():
-    """geteuid() -> euid
+    def symlink(src, dst):
+        """symlink(src, dst)
 
-    Return the current process's effective user id."""
-    return _posix.geteuid()
+        Create a symbolic link pointing to src named dst.
+        """
+        _posix.symlink(src, sys.getPath(dst))
 
-def getgid():
-    """getgid() -> gid
+    def readlink(path):
+        """readlink(path) -> path
 
-    Return the current process's group id."""
-    return _posix.getgid()
+        Return a string representing the path to which the symbolic link
+        points.
+        """
+        return _posix.readlink(sys.getPath(path))
 
-def getlogin():
-    """getlogin() -> string
+    def getegid():
+        """getegid() -> egid
 
-    Return the actual login name."""
-    return _posix.getlogin()
+        Return the current process's effective group id."""
+        return _posix.getegid()
 
-def getpgrp():
-    """getpgrp() -> pgrp
+    def geteuid():
+        """geteuid() -> euid
 
-    Return the current process group id."""
-    return _posix.getpgrp()
+        Return the current process's effective user id."""
+        return _posix.geteuid()
+
+    def getgid():
+        """getgid() -> gid
+
+        Return the current process's group id."""
+        return _posix.getgid()
+
+    def getlogin():
+        """getlogin() -> string
+
+        Return the actual login name."""
+        return _posix.getlogin()
+
+    def getpgrp():
+        """getpgrp() -> pgrp
+
+        Return the current process group id."""
+        return _posix.getpgrp()
+
+    def getppid():
+        """getppid() -> ppid
+
+        Return the parent's process id."""
+        return _posix.getppid()
+
+    def getuid():
+        """getuid() -> uid
+
+        Return the current process's user id."""
+        return _posix.getuid()
+
+    def setpgrp():
+        """setpgrp()
+
+        Make this process a session leader."""
+        return _posix.setpgrp()
+
+    def setsid():
+        """setsid()
+
+        Call the system call setsid()."""
+        return _posix.setsid()
+
+    # This implementation of fork partially works on
+    # Jython. Diagnosing what works, what doesn't, and fixing it is
+    # left for another day. In any event, this would only be
+    # marginally useful.
+
+    # def fork():
+    #     """fork() -> pid
+    #     
+    #     Fork a child process.
+    #     Return 0 to child process and PID of child to parent process."""
+    #     return _posix.fork()
+
+    def kill(pid, sig):
+        """kill(pid, sig)
+
+        Kill a process with a signal."""
+        return _posix.kill(pid, sig)
+
+    def wait():
+        """wait() -> (pid, status)
+        
+        Wait for completion of a child process."""
+
+        status = jarray.zeros(1, 'i')
+        res_pid = _posix.wait(status)
+        if res_pid == -1:
+            raise OSError(status[0], strerror(status[0]))
+        return res_pid, status[0]
+
+    def waitpid(pid, options):
+        """waitpid(pid, options) -> (pid, status)
+
+        Wait for completion of a given child process."""
+        status = jarray.zeros(1, 'i')
+        res_pid = _posix.waitpid(pid, status, options)
+        if res_pid == -1:
+            raise OSError(status[0], strerror(status[0]))
+        return res_pid, status[0]
 
 def getpid():
     """getpid() -> pid
 
     Return the current process id."""
     return _posix.getpid()
-
-def getppid():
-    """getppid() -> ppid
-
-    Return the parent's process id."""
-    return _posix.getppid()
-
-def getuid():
-    """getuid() -> uid
-
-    Return the current process's user id."""
-    return _posix.getuid()
-
-def setpgrp():
-    """setpgrp()
-
-    Make this process a session leader."""
-    return _posix.setpgrp()
-
-def setsid():
-    """setsid()
-
-    Call the system call setsid()."""
-    return _posix.setsid()
 
 def isatty(fileno):
     """isatty(fd) -> bool
@@ -987,8 +1081,13 @@ def isatty(fileno):
 
     return fileno.isatty()
 
+def umask(new_mask):
+    """umask(new_mask) -> old_mask
 
-import jarray
+    Set the current numeric umask and return the previous umask."""
+    return _posix.umask(int(new_mask))
+
+
 from java.security import SecureRandom
 urandom_source = None
 

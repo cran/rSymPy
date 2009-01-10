@@ -7,6 +7,7 @@ from test import test_support
 
 import errno
 import Queue
+import platform
 import select
 import socket
 import struct
@@ -20,6 +21,8 @@ PORT = 50007
 HOST = 'localhost'
 MSG = 'Michael Gilfix was here\n'
 EIGHT_BIT_MSG = 'Bh\xed Al\xe1in \xd3 Cinn\xe9ide anseo\n'
+os_name = platform.java_ver()[3][0]
+is_bsd = os_name == 'Mac OS X' or 'BSD' in os_name
 
 try:
     True
@@ -28,10 +31,13 @@ except NameError:
 
 class SocketTCPTest(unittest.TestCase):
 
+    HOST = HOST
+    PORT = PORT
+
     def setUp(self):
         self.serv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.serv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.serv.bind((HOST, PORT))
+        self.serv.bind((self.HOST, self.PORT))
         self.serv.listen(1)
 
     def tearDown(self):
@@ -40,10 +46,13 @@ class SocketTCPTest(unittest.TestCase):
 
 class SocketUDPTest(unittest.TestCase):
 
+    HOST = HOST
+    PORT = PORT
+
     def setUp(self):
         self.serv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.serv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.serv.bind((HOST, PORT))
+        self.serv.bind((self.HOST, self.PORT))
 
     def tearDown(self):
         self.serv.close()
@@ -196,7 +205,7 @@ class SocketConnectedTest(ThreadedTCPSocketTest):
 
     def clientSetUp(self):
         ThreadedTCPSocketTest.clientSetUp(self)
-        self.cli.connect((HOST, PORT))
+        self.cli.connect((self.HOST, self.PORT))
         self.serv_conn = self.cli
 
     def clientTearDown(self):
@@ -542,6 +551,7 @@ class TestSocketOptions(unittest.TestCase):
             sock.close()
 
     def _testTCPClientOption(self, option, values):
+        sock = None
         try:
             # First listen on a server socket, so that the connection won't be refused.
             server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -554,12 +564,21 @@ class TestSocketOptions(unittest.TestCase):
             # First bind, so that the SO_REUSEADDR setting propagates
             sock.bind( (HOST, PORT+1) )
             sock.connect( (HOST, PORT) )
-            self.failUnlessEqual(sock.getsockopt(socket.SOL_SOCKET, option), values[-1], \
-                 "Option value '%s'='%s' did not propagate to implementation socket" % (option, values[-1]))
+            msg = "Option value '%s'='%s' did not propagate to implementation socket" % (option, values[-1])
+            if is_bsd and option in (socket.SO_RCVBUF, socket.SO_SNDBUF):
+                # XXX: there's no guarantee that bufsize will be the
+                # exact setsockopt value, particularly after
+                # establishing a connection. seems it will be *at least*
+                # the values we test (which are rather small) on
+                # BSDs. may need to relax this on other platforms also
+                self.assert_(sock.getsockopt(socket.SOL_SOCKET, option) >= values[-1], msg)
+            else:
+                self.failUnlessEqual(sock.getsockopt(socket.SOL_SOCKET, option), values[-1], msg)
             self._testSetAndGetOption(sock, option, values)
         finally:
             server_sock.close()
-            sock.close()
+            if sock:
+                sock.close()
 
     def _testTCPServerOption(self, option, values):
         try:
@@ -695,6 +714,16 @@ class BasicTCPTest(SocketConnectedTest):
     def _testRecv(self):
         self.serv_conn.send(MSG)
 
+    def testRecvTimeoutMode(self):
+        # Do this test in timeout mode, because the code path is different
+        self.cli_conn.settimeout(10)
+        msg = self.cli_conn.recv(1024)
+        self.assertEqual(msg, MSG)
+
+    def _testRecvTimeoutMode(self):
+        self.serv_conn.settimeout(10)
+        self.serv_conn.send(MSG)
+
     def testOverFlowRecv(self):
         # Testing receive in chunks over TCP
         seg1 = self.cli_conn.recv(len(MSG) - 3)
@@ -796,7 +825,7 @@ class BasicUDPTest(ThreadedUDPSocketTest):
         self.assertEqual(msg, MSG)
 
     def _testSendtoAndRecv(self):
-        self.cli.sendto(MSG, 0, (HOST, PORT))
+        self.cli.sendto(MSG, 0, (self.HOST, self.PORT))
 
     def testSendtoAndRecvTimeoutMode(self):
         # Need to test again in timeout mode, which follows
@@ -807,7 +836,7 @@ class BasicUDPTest(ThreadedUDPSocketTest):
 
     def _testSendtoAndRecvTimeoutMode(self):
         self.cli.settimeout(10)
-        self.cli.sendto(MSG, 0, (HOST, PORT))
+        self.cli.sendto(MSG, 0, (self.HOST, self.PORT))
 
     def testRecvFrom(self):
         # Testing recvfrom() over UDP
@@ -815,7 +844,7 @@ class BasicUDPTest(ThreadedUDPSocketTest):
         self.assertEqual(msg, MSG)
 
     def _testRecvFrom(self):
-        self.cli.sendto(MSG, 0, (HOST, PORT))
+        self.cli.sendto(MSG, 0, (self.HOST, self.PORT))
 
     def testRecvFromTimeoutMode(self):
         # Need to test again in timeout mode, which follows
@@ -826,7 +855,7 @@ class BasicUDPTest(ThreadedUDPSocketTest):
 
     def _testRecvFromTimeoutMode(self):
         self.cli.settimeout(10)
-        self.cli.sendto(MSG, 0, (HOST, PORT))
+        self.cli.sendto(MSG, 0, (self.HOST, self.PORT))
 
     def testSendtoEightBitSafe(self):
         # This test is necessary because java only supports signed bytes
@@ -834,7 +863,7 @@ class BasicUDPTest(ThreadedUDPSocketTest):
         self.assertEqual(msg, EIGHT_BIT_MSG)
 
     def _testSendtoEightBitSafe(self):
-        self.cli.sendto(EIGHT_BIT_MSG, 0, (HOST, PORT))
+        self.cli.sendto(EIGHT_BIT_MSG, 0, (self.HOST, self.PORT))
 
     def testSendtoEightBitSafeTimeoutMode(self):
         # Need to test again in timeout mode, which follows
@@ -845,7 +874,7 @@ class BasicUDPTest(ThreadedUDPSocketTest):
 
     def _testSendtoEightBitSafeTimeoutMode(self):
         self.cli.settimeout(10)
-        self.cli.sendto(EIGHT_BIT_MSG, 0, (HOST, PORT))
+        self.cli.sendto(EIGHT_BIT_MSG, 0, (self.HOST, self.PORT))
 
 class UDPBroadcastTest(ThreadedUDPSocketTest):
 
@@ -854,13 +883,13 @@ class UDPBroadcastTest(ThreadedUDPSocketTest):
         self.serv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
     def testBroadcast(self):
-        self.serv.bind( ("<broadcast>", PORT) )
+        self.serv.bind( ("", self.PORT) )
         msg = self.serv.recv(len(EIGHT_BIT_MSG))
         self.assertEqual(msg, EIGHT_BIT_MSG)
 
     def _testBroadcast(self):
         self.cli.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        self.cli.sendto(EIGHT_BIT_MSG, ("<broadcast>", PORT) )
+        self.cli.sendto(EIGHT_BIT_MSG, ("<broadcast>", self.PORT) )
 
 class BasicSocketPairTest(SocketPairTest):
 
@@ -927,7 +956,7 @@ class NonBlockingTCPTests(ThreadedTCPSocketTest):
 
     def _testAcceptConnection(self):
         # Make a connection to the server
-        self.cli.connect((HOST, PORT))
+        self.cli.connect((self.HOST, self.PORT))
 
     #
     # AMAK: 20070311
@@ -942,7 +971,7 @@ class NonBlockingTCPTests(ThreadedTCPSocketTest):
     def _testBlockingConnect(self):
         # Testing blocking connect
         self.cli.settimeout(10)
-        self.cli.connect((HOST, PORT))
+        self.cli.connect((self.HOST, self.PORT))
 
     def testNonBlockingConnect(self):
         # Testing non-blocking connect
@@ -951,7 +980,7 @@ class NonBlockingTCPTests(ThreadedTCPSocketTest):
     def _testNonBlockingConnect(self):
         # Testing non-blocking connect
         self.cli.setblocking(0)
-        result = self.cli.connect_ex((HOST, PORT))
+        result = self.cli.connect_ex((self.HOST, self.PORT))
         rfds, wfds, xfds = select.select([], [self.cli], [])
         self.failUnless(self.cli in wfds)
         try:
@@ -970,13 +999,13 @@ class NonBlockingTCPTests(ThreadedTCPSocketTest):
 
     def _testConnectWithLocalBind(self):
         # Testing blocking connect with local bind
-        cli_port = PORT - 1
+        cli_port = self.PORT - 1
         while True:
             # Keep trying until a local port is available
             self.cli.settimeout(1)
-            self.cli.bind( (HOST, cli_port) )
+            self.cli.bind( (self.HOST, cli_port) )
             try:
-                self.cli.connect((HOST, PORT))
+                self.cli.connect((self.HOST, self.PORT))
                 break
             except socket.error, se:
                 # cli_port is in use (maybe in TIME_WAIT state from a
@@ -1004,7 +1033,7 @@ class NonBlockingTCPTests(ThreadedTCPSocketTest):
             self.fail("Non-blocking socket with data should been in read list.")
 
     def _testRecvData(self):
-        self.cli.connect((HOST, PORT))
+        self.cli.connect((self.HOST, self.PORT))
         self.cli.send(MSG)
 
     def testRecvNoData(self):
@@ -1019,7 +1048,7 @@ class NonBlockingTCPTests(ThreadedTCPSocketTest):
             self.fail("Non-blocking recv of no data should have raised socket.error.")
 
     def _testRecvNoData(self):
-        self.cli.connect((HOST, PORT))
+        self.cli.connect((self.HOST, self.PORT))
         time.sleep(0.1)
 
 class NonBlockingUDPTests(ThreadedUDPSocketTest): pass
@@ -1067,7 +1096,7 @@ class UDPFileObjectClassOpenCloseTests(ThreadedUDPSocketTest):
         self.cli_file = self.cli.makefile('wb')
         self.cli_file.close()
         try:
-            self.cli.sendto(MSG, 0, (HOST, PORT))
+            self.cli.sendto(MSG, 0, (self.HOST, self.PORT))
         except Exception, x:
             self.fail("Closing file wrapper appears to have closed underlying socket: %s" % str(x))
 
@@ -1079,7 +1108,7 @@ class UDPFileObjectClassOpenCloseTests(ThreadedUDPSocketTest):
 
     def _testCloseSocketDoesNotCloseFile(self):
         try:
-            self.cli.sendto(MSG, 0, (HOST, PORT))
+            self.cli.sendto(MSG, 0, (self.HOST, self.PORT))
         except Exception, x:
             self.fail("Closing file wrapper appears to have closed underlying socket: %s" % str(x))
 
@@ -1251,14 +1280,14 @@ class SmallBufferedFileObjectClassTestCase(FileObjectClassTestCase):
 
     bufsize = 2 # Exercise the buffering code
 
-class TCPTimeoutTest(SocketTCPTest):
+class TCPServerTimeoutTest(SocketTCPTest):
 
-    def testTCPTimeout(self):
+    def testAcceptTimeout(self):
         def raise_timeout(*args, **kwargs):
             self.serv.settimeout(1.0)
             self.serv.accept()
         self.failUnlessRaises(socket.timeout, raise_timeout,
-                              "Error generating a timeout exception (TCP)")
+                              "TCP socket accept failed to generate a timeout exception (TCP)")
 
     def testTimeoutZero(self):
         ok = False
@@ -1274,9 +1303,9 @@ class TCPTimeoutTest(SocketTCPTest):
         if not ok:
             self.fail("accept() returned success when we did not expect it")
 
-class TCPClientTimeoutTest(unittest.TestCase):
+class TCPClientTimeoutTest(SocketTCPTest):
 
-    def testClientTimeout(self):
+    def testConnectTimeout(self):
         cli = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         cli.settimeout(0.1)
         host = '192.168.192.168'
@@ -1291,7 +1320,61 @@ class TCPClientTimeoutTest(unittest.TestCase):
 socket.timeout.  This tries to connect to %s in the assumption that it isn't
 used, but if it is on your network this failure is bogus.''' % host)
 
-        
+    def testConnectDefaultTimeout(self):
+        _saved_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(0.1)
+        cli = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        host = '192.168.192.168'
+        try:
+            cli.connect((host, 5000))
+        except socket.timeout, st:
+            pass
+        except Exception, x:
+            self.fail("Client socket timeout should have raised socket.timeout, not %s" % str(x))
+        else:
+            self.fail('''Client socket timeout should have raised
+socket.timeout.  This tries to connect to %s in the assumption that it isn't
+used, but if it is on your network this failure is bogus.''' % host)
+        socket.setdefaulttimeout(_saved_timeout)
+
+    def testRecvTimeout(self):
+        def raise_timeout(*args, **kwargs):
+            cli_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            cli_sock.connect( (HOST, PORT) )
+            cli_sock.settimeout(1)
+            cli_sock.recv(1024)
+        self.failUnlessRaises(socket.timeout, raise_timeout,
+                              "TCP socket recv failed to generate a timeout exception (TCP)")
+
+    # Disable this test, but leave it present for documentation purposes 
+    # socket timeouts only work for read and accept, not for write
+    # http://java.sun.com/j2se/1.4.2/docs/api/java/net/SocketTimeoutException.html
+    def estSendTimeout(self):
+        def raise_timeout(*args, **kwargs):
+            cli_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            cli_sock.connect( (HOST, PORT) )
+            # First fill the socket
+            cli_sock.settimeout(1)
+            sent = 0
+            while True:
+                bytes_sent = cli_sock.send(MSG)
+                sent += bytes_sent
+        self.failUnlessRaises(socket.timeout, raise_timeout,
+                              "TCP socket send failed to generate a timeout exception (TCP)")
+
+    def testSwitchModes(self):
+        cli_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        cli_sock.connect( (HOST, PORT) )
+        # set non-blocking mode
+        cli_sock.setblocking(0)
+        # then set timeout mode
+        cli_sock.settimeout(1)
+        try:
+            cli_sock.send(MSG)
+        except Exception, x:
+            self.fail("Switching mode from non-blocking to timeout raised exception: %s" % x)
+        else:
+            pass
 
 #
 # AMAK: 20070307
@@ -1488,7 +1571,7 @@ class UnicodeTest(ThreadedTCPSocketTest):
         pass
 
     def _testUnicodeHostname(self):
-        self.cli.connect((unicode(HOST), PORT))
+        self.cli.connect((unicode(self.HOST), self.PORT))
 
 class TestInvalidUsage(unittest.TestCase):
 
@@ -1520,7 +1603,7 @@ def test_main():
         TestSupportedOptions,
         TestUnsupportedOptions,
         BasicTCPTest, 
-        TCPTimeoutTest, 
+        TCPServerTimeoutTest, 
         TCPClientTimeoutTest,
         TestExceptions,
         TestInvalidUsage,

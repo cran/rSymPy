@@ -1,7 +1,7 @@
 package org.python.expose.generate;
 
-import org.python.objectweb.asm.Opcodes;
-import org.python.objectweb.asm.Type;
+import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.python.core.BytecodeLoader;
 import org.python.core.Py;
 import org.python.core.PyBuiltinCallable;
@@ -187,6 +187,10 @@ public class MethodExposerTest extends InterpTestCase implements Opcodes, PyType
         assertEquals(12, Py.py2int(createBound("shortReturn", SHORT).__call__()));
         assertEquals(0, Py.py2int(createBound("byteReturn", BYTE).__call__()));
         assertEquals("a", createBound("charReturn", CHAR).__call__().toString());
+    }
+
+    public void testNullReturns() throws Exception {
+        assertEquals(Py.None, createBound("stringReturnNull", STRING).__call__());
     }
 
     public void testClassMethod() throws Exception {

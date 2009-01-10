@@ -4,7 +4,7 @@ import java.io.IOException;
 
 import junit.framework.TestCase;
 
-import org.python.objectweb.asm.Type;
+import org.objectweb.asm.Type;
 import org.python.core.Py;
 import org.python.core.PyNewWrapper;
 import org.python.core.PyObject;
@@ -22,6 +22,7 @@ public class TypeExposerTest extends InterpTestCase {
         TypeBuilder t = etp.getTypeExposer().makeBuilder();
         assertEquals("simpleexposed", t.getName());
         assertEquals(SimpleExposed.class, t.getTypeClass());
+        assertEquals(false, t.getIsBaseType());
         PyType type = PyType.fromClass(SimpleExposed.class);
         PyObject dict = t.getDict(type);
         assertNotNull(dict.__finditem__("simple_method"));
@@ -36,6 +37,7 @@ public class TypeExposerTest extends InterpTestCase {
         ExposedTypeProcessor etp = new ExposedTypeProcessor(getClass().getClassLoader()
                 .getResourceAsStream("org/python/expose/generate/TypeExposerTest$SimplestNew.class"));
         TypeBuilder te = etp.getTypeExposer().makeBuilder();
+        assertEquals(true, te.getIsBaseType());
         PyObject new_ = te.getDict(PyType.fromClass(SimplestNew.class)).__finditem__("__new__");
         assertEquals(Py.One, new_.__call__(PyType.fromClass(SimplestNew.class)));
     }
