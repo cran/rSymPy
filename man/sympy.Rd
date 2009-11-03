@@ -1,28 +1,32 @@
 \name{sympy}
 \alias{sympy}
 \alias{sympyStart}
-\title{ ~~function to do ... ~~ }
+\alias{jythonStart}
+\title{ sympy }
 \description{
   Interface to the sympy computer algebra system.
 }
 \usage{
-sympy(..., output = TRUE, debug = FALSE)
+sympy(..., retclass = c("character", "Sym", "NULL"), debug = FALSE)
 }
 %- maybe also 'usage' for other objects documented here.
 \arguments{
   \item{\dots}{Character strings which are pasted together with space 
 	separators.  The resulting string is passed to sympy.}
-  \item{output}{Logical.  If FALSE then no output is generated. }
+  \item{retclass}{Character string representing the class of the output or 
+    the string \code{"NULL"} to mean no output. }
   \item{debug}{Logical.  If TRUE then additional debugging info is shown.}
 }
 \details{
 The \code{sympy} function passes
 an input string to SymPy and returns the output.  The first time
 \code{sympy} is invokved in a session it also starts up SymPy by invoking
-\code{sympyStart}.  As a result the first invocation of sympy can be
-expected to much slower than subsequent ones.
-\code{sympyStart} creates 
-a variable \code{.Rsympy} which is stored in the global environment
+\code{sympyStart} 
+(which sets the appropriate paths, calls \code{jythonStart}
+and then imports \code{sympy}).  As a result the first invocation of sympy 
+can be expected to much slower than subsequent ones.
+\code{jythonStart} creates 
+a variable \code{.Jython} which is stored in the global environment
 holding the connection information to the SymPy/Jython session.
 
 Internally if the argument 
@@ -52,7 +56,9 @@ sympy("y")
 
 sympy("limit(1/x, x, oo)")
 
-sympy("(1/cos(x)).series(x, 0, 10)")
+# the next line fails under jython even without R
+# and seems to corrupt the rest of the session
+# sympy("(1/cos(x)).series(x, 0, 10)")
 
 sympy("diff(sin(2*x), x, 1)")
 sympy("diff(sin(2*x), x, 2)")
@@ -62,13 +68,10 @@ sympy("integrate(exp(-x), (x, 0, oo))")
 sympy("xr = Symbol('xr', real=True)")
 sympy("exp(I*xr).expand(complex=True)")
 
-sympy("solve(x**2 - x, x)")
-sympy("var('y')")
-sympy("solve([x + 5*y - 2, -3*x + 6*y - 15], [x, y])")
-
 # Matrices are stored row by row (unlike R matrices)
 cat(sympy("A = Matrix([[1,x], [y,1]])"), "\n")
 cat(sympy("A**2"), "\n")
+
 
 }
 }
