@@ -8,3 +8,13 @@ exportPattern(".")
 import(
   rJython
 )
+
+importFrom(stats, deriv)
+
+S3method(Math, Sym)
+S3method(Ops, Sym)
+S3method(as.character, Sym)
+S3method(deriv, Sym)
+S3method(print, Sym)
+S3method(solve, Sym)
+S3method(t, Sym)
